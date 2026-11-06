@@ -15,6 +15,7 @@ const ICONS = {
   external: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>`,
   download: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h15"/><path d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="m6.5 7 .8 11.2A1.8 1.8 0 0 0 9.1 20h5.8a1.8 1.8 0 0 0 1.8-1.8L17.5 7"/><path d="M10 11v5M14 11v5"/></svg>`,
+  pencil: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3.5a2.1 2.1 0 0 1 3 3L8.5 18 4 19.5 5.5 15z"/><path d="m14.5 6 3 3"/></svg>`,
   arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>`,
   home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 11 8-7 8 7"/><path d="M6.5 9.5V20h11V9.5"/></svg>`,
   alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5M12 16.2h.01"/></svg>`,
@@ -43,6 +44,7 @@ const state = {
   welcomePath: '',
   scanToken: 0,
   highlightId: null,
+  highlightFolderRel: null,
   pendingGroupId: null,
   pendingFileId: null
 }
@@ -59,6 +61,7 @@ let dimsRequests = new Map()
 let dimsQueue = []
 let dimsActive = 0
 let activeOverlayClose = null
+let activeRename = null
 let searchDebounceTimer = null
 let globalSearchToken = 0
 let navigationToken = 0
@@ -302,6 +305,7 @@ function mountOverlay(overlay, { closeOnBackdrop = true, onClose = null, escape 
 }
 
 function renderApp() {
+  cancelActiveRename()
   disconnectDimsObserver()
   const app = document.getElementById('app')
   app.replaceChildren()
@@ -795,6 +799,7 @@ async function runGlobalSearch() {
 function renderExplorerResults() {
   const container = document.getElementById('results')
   if (!container || state.view !== 'explorer') return
+  cancelActiveRename()
 
   const countElement = document.getElementById('result-count')
   const isGlobal = state.searchScope === 'all'
@@ -880,6 +885,17 @@ function renderExplorerResults() {
       row.scrollIntoView({ block: 'center' })
     })
   }
+
+  if (state.highlightFolderRel) {
+    const rel = state.highlightFolderRel
+    state.highlightFolderRel = null
+    requestAnimationFrame(() => {
+      const row = container.querySelector(`tr[data-folder-rel="${CSS.escape(rel)}"]`)
+      if (!row) return
+      row.classList.add('highlighted')
+      row.scrollIntoView({ block: 'center' })
+    })
+  }
 }
 
 function buildFileTable(folders, files, { global, dimsTargets }) {
@@ -894,7 +910,8 @@ function buildFileTable(folders, files, { global, dimsTargets }) {
       h('th', { scope: 'col', class: 'col-size' }, 'حجم'),
       h('th', { scope: 'col', class: 'col-type' }, 'نوع'),
       h('th', { scope: 'col', class: 'col-dup' }, 'وضعیت تکراری'),
-      h('th', { scope: 'col', class: 'col-peer' }, 'فایل تکراری')
+      h('th', { scope: 'col', class: 'col-peer' }, 'فایل تکراری'),
+      h('th', { scope: 'col', class: 'col-actions', title: 'تغییر نام' }, '')
     )
   )
 
@@ -910,7 +927,7 @@ function folderRow(folder, global) {
     'tr',
     {
       class: 'folder-row',
-      dataset: { clickable: 'true' },
+      dataset: { clickable: 'true', folderRel: folder.rel },
       tabindex: '0',
       title: `باز کردن پوشه ${folder.name}`
     },
@@ -949,10 +966,14 @@ function folderRow(folder, global) {
           )
         : h('span', { class: 'dash' }, '—')
     ),
-    h('td', {}, h('span', { class: 'dash' }, '—'))
+    h('td', {}, h('span', { class: 'dash' }, '—')),
+    renameCell('folder', folder)
   )
 
-  row.addEventListener('click', () => navigate(folder.rel))
+  row.addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input')) return
+    navigate(folder.rel)
+  })
   row.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       if (event.target !== row) return
@@ -1013,11 +1034,12 @@ function fileRow(file, global, dimsTargets) {
     h('td', { class: 'size-cell', title: `${formatCount(file.size)} بایت` }, formatBytes(file.size)),
     h('td', {}, typeBadge),
     duplicateStatusCell(file),
-    duplicatePeerCell(file)
+    duplicatePeerCell(file),
+    renameCell('file', file)
   )
 
   row.addEventListener('click', (event) => {
-    if (event.target.closest('button, a')) return
+    if (event.target.closest('button, a, input')) return
     openPreview(file)
   })
   row.addEventListener('keydown', (event) => {
@@ -1027,6 +1049,167 @@ function fileRow(file, global, dimsTargets) {
   })
 
   return row
+}
+
+function renameCell(kind, entry) {
+  const label = kind === 'folder' ? 'تغییر نام پوشه' : 'تغییر نام فایل'
+  return h(
+    'td',
+    { class: 'actions-cell' },
+    h(
+      'button',
+      {
+        class: 'icon-button button-ghost row-action',
+        type: 'button',
+        title: label,
+        'aria-label': `${label} ${entry.name}`,
+        onClick: (event) => {
+          event.stopPropagation()
+          startInlineRename(event.currentTarget.closest('tr'), kind, entry)
+        }
+      },
+      icon('pencil', 'icon-sm')
+    )
+  )
+}
+
+function cancelActiveRename() {
+  if (!activeRename) return
+  const current = activeRename
+  activeRename = null
+  current.cancel()
+}
+
+function startInlineRename(row, kind, entry) {
+  cancelActiveRename()
+  const rootId = state.root?.id
+  if (!rootId || !row) return
+
+  const nameSpan = row.querySelector('.file-name')
+  if (!nameSpan) return
+
+  let submitting = false
+  let done = false
+
+  const input = h('input', {
+    class: 'rename-input',
+    type: 'text',
+    value: entry.name,
+    dir: 'auto',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    'aria-label': kind === 'folder' ? 'نام جدید پوشه' : 'نام جدید فایل'
+  })
+
+  const confirmButton = h(
+    'button',
+    {
+      class: 'icon-button rename-confirm',
+      type: 'button',
+      title: 'تأیید (Enter)',
+      'aria-label': 'تأیید تغییر نام',
+      onMousedown: (event) => event.preventDefault(),
+      onClick: () => submit()
+    },
+    icon('check', 'icon-sm')
+  )
+  const cancelButton = h(
+    'button',
+    {
+      class: 'icon-button rename-cancel',
+      type: 'button',
+      title: 'انصراف (Esc)',
+      'aria-label': 'انصراف از تغییر نام',
+      onMousedown: (event) => event.preventDefault(),
+      onClick: () => cancel()
+    },
+    icon('close', 'icon-sm')
+  )
+
+  const editor = h(
+    'div',
+    { class: 'rename-edit', onClick: (event) => event.stopPropagation() },
+    input,
+    confirmButton,
+    cancelButton
+  )
+
+  function cancel() {
+    if (done || submitting) return
+    done = true
+    if (activeRename?.cancel === cancel) activeRename = null
+    row.classList.remove('renaming')
+    editor.replaceWith(nameSpan)
+  }
+
+  async function submit() {
+    if (submitting || done) return
+    const newName = input.value.trim()
+    if (!newName || newName === entry.name) {
+      cancel()
+      return
+    }
+
+    submitting = true
+    confirmButton.disabled = true
+    cancelButton.disabled = true
+    input.readOnly = true
+    row.classList.add('renaming')
+
+    const body = kind === 'file'
+      ? { kind, fileId: entry.id, newName }
+      : { kind, rel: entry.rel, newName }
+
+    try {
+      const result = await postJSON(`/api/rename/${encodeURIComponent(rootId)}`, body)
+      done = true
+      if (activeRename?.cancel === cancel) activeRename = null
+      if (result.removedFromIndex) {
+        showToast(`«${newName}» تغییر نام یافت و چون رسانه‌ای نیست، از فهرست خارج شد.`, 'info', 6000)
+      } else {
+        showToast(`نام به «${newName}» تغییر یافت.`, 'info')
+      }
+      await refreshAfterRename(result, body)
+    } catch (error) {
+      submitting = false
+      confirmButton.disabled = false
+      cancelButton.disabled = false
+      input.readOnly = false
+      row.classList.remove('renaming')
+      if (!row.isConnected) return
+      showToast(error.message, 'error')
+      input.focus()
+    }
+  }
+
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation()
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      submit()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      cancel()
+    }
+  })
+  input.addEventListener('blur', (event) => {
+    if (editor.contains(event.relatedTarget)) return
+    cancel()
+  })
+
+  nameSpan.replaceWith(editor)
+  activeRename = { cancel }
+  row.classList.add('renaming')
+
+  requestAnimationFrame(() => {
+    input.focus()
+    if (kind === 'file') {
+      const dot = entry.name.lastIndexOf('.')
+      input.setSelectionRange(0, dot > 0 ? dot : entry.name.length)
+    } else {
+      input.select()
+    }
+  })
 }
 
 function duplicateStatusCell(file) {
@@ -1843,6 +2026,47 @@ function refreshAfterTrash(updatedRoot) {
       state.root = data.root
     })
     .catch(() => {})
+}
+
+async function refreshAfterRename(result, request) {
+  if (!state.root) return
+  const rootId = state.root.id
+  state.duplicates = null
+  state.duplicatesError = null
+  state.duplicatesLoading = false
+  if (result.root?.id === rootId) state.root.stats = result.root.stats
+
+  if (request.kind === 'folder' && state.searchScope === 'all') {
+    const oldRel = request.rel
+    const newRel = result.entry?.rel
+    if (newRel && (state.path === oldRel || state.path.startsWith(`${oldRel}/`))) {
+      state.path = newRel + state.path.slice(oldRel.length)
+    }
+  }
+
+  try {
+    const data = await loadTree(rootId, state.path)
+    if (state.root?.id !== rootId) return
+    state.tree = data
+    state.root = data.root
+    state.path = data.path
+  } catch {
+    // The rename succeeded; keep the previous view if the tree cannot be reloaded.
+  }
+
+  if (request.kind === 'file' && !result.removedFromIndex) {
+    state.highlightId = result.entry?.id || null
+  } else if (request.kind === 'folder') {
+    state.highlightFolderRel = result.entry?.rel || null
+  }
+
+  if (state.searchScope === 'all' && state.search.trim().length >= 2) {
+    state.globalSearch = null
+    renderApp()
+    runGlobalSearch()
+  } else {
+    renderApp()
+  }
 }
 
 function openPreview(file) {
