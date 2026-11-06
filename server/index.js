@@ -7,8 +7,8 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import mime from 'mime-types'
-import { scanFolder, readImageDimensions } from './scanner.js'
-import { CATEGORY_LABELS, isTextExtension } from './media.js'
+import { scanFolder, readImageDimensions, rebuildDerived, SKIPPED_DIRECTORIES } from './scanner.js'
+import { CATEGORY_LABELS, isTextExtension, categoryOf, extensionOf } from './media.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -93,7 +93,7 @@ const LOOPBACK_HOSTNAMES = /^(localhost|::1|\[::1\]|127(?:\.\d{1,3}){3})$/i
 
 function assertLoopbackRequest(req) {
   if (LOOPBACK_HOSTNAMES.test(String(req.hostname || ''))) return
-  throw httpError(403, 'انتقال به سطل زباله فقط از روی همین کامپیوتر مجاز است.')
+  throw httpError(403, 'این عمل فقط از روی همین کامپیوتر مجاز است.')
 }
 
 function getRoot(rootId) {
@@ -203,11 +203,11 @@ function rememberRoot(root) {
   }
 }
 
-let trashQueue = Promise.resolve()
+let mutationQueue = Promise.resolve()
 
-function enqueueTrash(task) {
-  const result = trashQueue.then(task, task)
-  trashQueue = result.catch(() => {})
+function enqueueMutation(task) {
+  const result = mutationQueue.then(task, task)
+  mutationQueue = result.catch(() => {})
   return result
 }
 
@@ -215,7 +215,7 @@ function depthOf(rel) {
   return rel ? rel.split('/').length : 0
 }
 
-async function verifyTrashTarget(root, file) {
+async function verifyFileIdentity(root, file) {
   let stat
   try {
     stat = await fs.lstat(file.abs)
@@ -224,7 +224,7 @@ async function verifyTrashTarget(root, file) {
   }
 
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    return { ok: false, message: `«${file.name}» دیگر یک فایل معمولی نیست و منتقل نمی‌شود.` }
+    return { ok: false, message: `«${file.name}» دیگر یک فایل معمولی نیست.` }
   }
 
   let parentReal
@@ -328,7 +328,7 @@ async function trashFiles(root, rawFileIds) {
   }
 
   for (const file of files) {
-    const check = await verifyTrashTarget(root, file)
+    const check = await verifyFileIdentity(root, file)
     if (!check.ok) throw httpError(409, check.message)
   }
 
@@ -350,6 +350,166 @@ async function trashFiles(root, rawFileIds) {
     failed,
     root: rootPublic(root)
   }
+}
+
+function validateNewName(rawName) {
+  if (typeof rawName !== 'string') throw httpError(400, 'نام جدید معتبر نیست.')
+  const name = rawName.trim()
+  if (!name) throw httpError(400, 'نام جدید نمی‌تواند خالی باشد.')
+  if (name === '.' || name === '..') throw httpError(400, 'این نام مجاز نیست.')
+  if (name.length > 255) throw httpError(400, 'نام جدید نباید بیش از ۲۵۵ نویسه باشد.')
+  if (/[/\\\u0000-\u001f\u007f]/.test(name)) {
+    throw httpError(400, 'نام جدید نباید شامل /، \\ یا نویسه‌های کنترلی باشد.')
+  }
+  return name
+}
+
+async function assertTargetFree(targetAbs, newName) {
+  try {
+    await fs.lstat(targetAbs)
+  } catch (error) {
+    if (error.code === 'ENOENT') return
+    throw httpError(409, 'بررسی مقصد ممکن نشد؛ پوشه را دوباره بررسی کنید.')
+  }
+  throw httpError(409, `«${newName}» از قبل وجود دارد؛ نام دیگری انتخاب کنید.`)
+}
+
+function refreshDerivedStats(root) {
+  const derived = rebuildDerived(root.index)
+  root.stats = {
+    ...root.stats,
+    files: root.index.files.length,
+    duplicateGroups: derived.groups.length,
+    duplicateFiles: derived.duplicateFiles,
+    wastedBytes: derived.wastedBytes,
+    categoryCounts: derived.categoryCounts
+  }
+}
+
+async function renameFileEntry(root, fileId, newName) {
+  const file = getFile(root, fileId)
+  if (file.name === newName) return { entry: filePublic(file), root: rootPublic(root) }
+
+  const check = await verifyFileIdentity(root, file)
+  if (!check.ok) throw httpError(409, check.message)
+
+  const targetAbs = path.join(path.dirname(file.abs), newName)
+  if (!isInside(root.path, targetAbs)) throw httpError(403, 'مقصد خارج از پوشهٔ بررسی‌شده است.')
+  await assertTargetFree(targetAbs, newName)
+
+  try {
+    await fs.rename(file.abs, targetAbs)
+  } catch {
+    throw httpError(409, `تغییر نام «${file.name}» ممکن نشد؛ پوشه را دوباره بررسی کنید.`)
+  }
+
+  file.name = newName
+  file.rel = file.dirRel ? `${file.dirRel}/${newName}` : newName
+  file.abs = targetAbs
+  file.ext = extensionOf(newName)
+  file.category = categoryOf(file.ext)
+  file.searchText = normalizeSearch(`${file.name} ${file.rel}`)
+
+  if (!file.category) {
+    file.group = null
+    removeFilesFromIndex(root, [file])
+    return { entry: filePublic(file), removedFromIndex: true, root: rootPublic(root) }
+  }
+
+  const node = root.index.directories.get(file.dirRel)
+  if (node) node.files.sort((a, b) => collator.compare(a.name, b.name))
+  refreshDerivedStats(root)
+  return { entry: filePublic(file), root: rootPublic(root) }
+}
+
+async function renameFolderEntry(root, rawRel, newName) {
+  const rel = normalizeRelative(rawRel)
+  if (!rel) throw httpError(400, 'نام پوشهٔ ریشه قابل تغییر نیست.')
+  if (SKIPPED_DIRECTORIES.has(newName)) throw httpError(400, 'این نام برای پوشه مجاز نیست.')
+
+  const node = root.index.directories.get(rel)
+  if (!node) throw httpError(404, 'این پوشه در اسکن فعلی پیدا نشد.')
+  if (node.name === newName) return { entry: folderPublic(node), root: rootPublic(root) }
+  if (!isInside(root.path, node.abs)) throw httpError(403, 'دسترسی به این پوشه مجاز نیست.')
+
+  let stat
+  try {
+    stat = await fs.lstat(node.abs)
+  } catch {
+    throw httpError(409, `پوشه «${node.name}» پیدا نشد؛ ممکن است قبلاً جابه‌جا شده باشد.`)
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw httpError(409, `«${node.name}» دیگر یک پوشهٔ معمولی نیست.`)
+  }
+
+  let real
+  try {
+    real = await fs.realpath(node.abs)
+  } catch {
+    throw httpError(409, `مسیر «${node.name}» قابل بررسی نیست.`)
+  }
+  if (real !== node.abs || !isInside(root.path, real)) {
+    throw httpError(409, `مسیر «${node.name}» بعد از بررسی تغییر کرده است؛ پوشه را دوباره بررسی کنید.`)
+  }
+
+  const parentRel = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+  const parentNode = root.index.directories.get(parentRel)
+  const newRel = parentRel ? `${parentRel}/${newName}` : newName
+  const targetAbs = path.join(root.path, newRel)
+  await assertTargetFree(targetAbs, newName)
+
+  try {
+    await fs.rename(node.abs, targetAbs)
+  } catch {
+    throw httpError(409, `تغییر نام «${node.name}» ممکن نشد؛ پوشه را دوباره بررسی کنید.`)
+  }
+
+  const prefix = `${rel}/`
+  const affectedDirs = [node]
+  for (const candidate of root.index.directories.values()) {
+    if (candidate.rel.startsWith(prefix)) affectedDirs.push(candidate)
+  }
+
+  const remaps = affectedDirs.map((dir) => [
+    dir.rel,
+    dir === node ? newRel : newRel + dir.rel.slice(rel.length),
+    dir
+  ])
+  for (const [oldRel] of remaps) root.index.directories.delete(oldRel)
+  for (const [, updatedRel, dir] of remaps) {
+    dir.rel = updatedRel
+    dir.abs = path.join(root.path, updatedRel)
+    root.index.directories.set(updatedRel, dir)
+  }
+  node.name = newName
+  for (const dir of affectedDirs) {
+    dir.searchText = normalizeSearch(`${dir.name} ${dir.rel}`)
+  }
+
+  for (const file of root.index.files) {
+    if (file.dirRel !== rel && !file.dirRel.startsWith(prefix)) continue
+    file.dirRel = newRel + file.dirRel.slice(rel.length)
+    file.rel = file.dirRel ? `${file.dirRel}/${file.name}` : file.name
+    file.abs = path.join(root.path, file.rel)
+    file.searchText = normalizeSearch(`${file.name} ${file.rel}`)
+  }
+
+  if (parentNode) parentNode.subdirs.sort((a, b) => collator.compare(a.name, b.name))
+  refreshDerivedStats(root)
+  return { entry: folderPublic(node), root: rootPublic(root) }
+}
+
+async function renameEntry(root, body) {
+  const newName = validateNewName(body?.newName)
+  if (body?.kind === 'file') {
+    if (typeof body.fileId !== 'string' || !body.fileId) throw httpError(400, 'شناسه فایل معتبر نیست.')
+    return renameFileEntry(root, body.fileId, newName)
+  }
+  if (body?.kind === 'folder') {
+    if (typeof body.rel !== 'string') throw httpError(400, 'مسیر پوشه معتبر نیست.')
+    return renameFolderEntry(root, body.rel, newName)
+  }
+  throw httpError(400, 'نوع درخواست تغییر نام معتبر نیست.')
 }
 
 async function buildShortcuts() {
@@ -631,7 +791,18 @@ app.post('/api/trash/:rootId', async (req, res, next) => {
   try {
     assertLoopbackRequest(req)
     const root = getRoot(req.params.rootId)
-    const result = await enqueueTrash(() => trashFiles(root, req.body?.fileIds))
+    const result = await enqueueMutation(() => trashFiles(root, req.body?.fileIds))
+    res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/rename/:rootId', async (req, res, next) => {
+  try {
+    assertLoopbackRequest(req)
+    const root = getRoot(req.params.rootId)
+    const result = await enqueueMutation(() => renameEntry(root, req.body))
     res.json(result)
   } catch (error) {
     next(error)

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { imageSize } from 'image-size'
 import { categoryOf, extensionOf } from './media.js'
 
-const SKIPPED_DIRECTORIES = new Set([
+export const SKIPPED_DIRECTORIES = new Set([
   'node_modules',
   '.git',
   '.svn',
@@ -195,6 +195,43 @@ export async function scanFolder(rootPath, onProgress) {
     if (node !== root) node.subdirs.sort((a, b) => collator.compare(a.name, b.name))
   }
 
+  const index = {
+    root,
+    directories,
+    files,
+    groups: [],
+    filesById
+  }
+  const derived = rebuildDerived(index)
+
+  reportProgress(true)
+
+  return {
+    rootId,
+    realRoot,
+    name: root.name,
+    scannedAt: Date.now(),
+    durationMs: Date.now() - startedAt,
+    stats: {
+      files: files.length,
+      directories: directories.size - 1,
+      duplicateGroups: derived.groups.length,
+      duplicateFiles: derived.duplicateFiles,
+      wastedBytes: derived.wastedBytes,
+      categoryCounts: derived.categoryCounts,
+      scannedEntries,
+      skippedEntries,
+      errors
+    },
+    index
+  }
+}
+
+export function rebuildDerived(index) {
+  const { directories, files } = index
+
+  for (const file of files) file.group = null
+
   const groupsByKey = new Map()
   for (const file of files) {
     const key = `${file.ext}\u0000${file.size}`
@@ -221,6 +258,7 @@ export async function scanFolder(rootPath, onProgress) {
     groups.push(group)
   }
   groups.sort((a, b) => b.wasted - a.wasted || b.files.length - a.files.length)
+  index.groups = groups
 
   const byDepth = [...directories.values()].sort((a, b) => depthOf(b.rel) - depthOf(a.rel))
   for (const node of byDepth) {
@@ -240,35 +278,11 @@ export async function scanFolder(rootPath, onProgress) {
   const categoryCounts = { image: 0, video: 0, audio: 0, document: 0 }
   for (const file of files) categoryCounts[file.category] += 1
 
-  const duplicateFiles = groups.reduce((sum, group) => sum + group.files.length, 0)
-  const wastedBytes = groups.reduce((sum, group) => sum + group.wasted, 0)
-
-  reportProgress(true)
-
   return {
-    rootId,
-    realRoot,
-    name: root.name,
-    scannedAt: Date.now(),
-    durationMs: Date.now() - startedAt,
-    stats: {
-      files: files.length,
-      directories: directories.size - 1,
-      duplicateGroups: groups.length,
-      duplicateFiles,
-      wastedBytes,
-      categoryCounts,
-      scannedEntries,
-      skippedEntries,
-      errors
-    },
-    index: {
-      root,
-      directories,
-      files,
-      groups,
-      filesById
-    }
+    groups,
+    categoryCounts,
+    duplicateFiles: groups.reduce((sum, group) => sum + group.files.length, 0),
+    wastedBytes: groups.reduce((sum, group) => sum + group.wasted, 0)
   }
 }
 

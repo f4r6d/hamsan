@@ -4,7 +4,7 @@
 
 A local-only web app that browses a folder on your computer and finds duplicate media files across all of its subfolders. The interface is Persian and right-to-left.
 
-Nothing is uploaded anywhere. The server binds to `127.0.0.1` and reads only the folder you pick. The one write action is moving a duplicate to the system trash after you explicitly confirm it.
+Nothing is uploaded anywhere. The server binds to `127.0.0.1` and reads only the folder you pick. Write actions are limited to moving a duplicate to the system trash and renaming a file or folder, and only happen when you explicitly confirm them.
 
 ## What it does
 
@@ -18,14 +18,16 @@ Nothing is uploaded anywhere. The server binds to `127.0.0.1` and reads only the
 - Shows image dimensions on demand and reads video/audio dimensions and duration in the browser.
 - Offers a "duplicates only" filter, duplicate groups by category, and reclaimable-space totals.
 - Moves a duplicate copy to the system trash from the duplicates view, after a confirmation dialog.
+- Renames a file or folder in place from any row: press the pencil button, type the new name, and confirm with Enter.
 
 ## Safe by design
 
 The app never modifies file contents and never deletes anything permanently.
 
-- The only write action is an explicit, confirmed move of a duplicate to the system trash. There is no permanent-delete endpoint.
+- The only write actions are an explicit, confirmed move of a duplicate to the system trash, and an explicit inline rename of a file or folder. There is no permanent-delete endpoint.
 - Before moving, the server re-checks that the file is still the exact file seen during the scan: it is a regular file, not a symlink, still inside the scanned folder, with the same size, inode, device, and modification time.
 - The last remaining copy of a duplicate group is never moved, so the app cannot wipe out every copy in a group.
+- Rename never overwrites: if the new name already exists, the request is rejected. The source is re-checked the same way as for trash, names with path separators or control characters are rejected, and both write endpoints only accept requests from this computer (loopback).
 - Everything else uses read-only filesystem calls (`stat`, `readdir`, `realpath`, `open(..., 'r')`, and streamed responses).
 - Duplicates are still only reported by default; cleanup only happens when you press the trash button and confirm.
 
@@ -56,6 +58,7 @@ npm run dev
 3. Browse folders and files, open the **فایل‌های تکراری** tab, or search across all folders.
 4. Click a file to preview it, or the duplicate button to see every copy and jump to its folder.
 5. In the duplicates view, use the trash button on a copy and confirm to move it to the system trash. At least one copy of each group must remain.
+6. To rename a file or folder, press the pencil button on its row, edit the name in place, and press Enter (Esc cancels).
 
 ## Configuration
 
@@ -73,7 +76,7 @@ PORT=5000 npm start
 
 ## Docker (optional)
 
-The repository includes a Dockerfile and Compose file, but Docker is not required for local development. The container serves the same local-only app; the host folder is mounted read-only at `/data` and is the only path the container may browse. Because the mount is read-only, moving duplicates to the trash does not work in the container; use it for browsing only.
+The repository includes a Dockerfile and Compose file, but Docker is not required for local development. The container serves the same local-only app; the host folder is mounted read-only at `/data` and is the only path the container may browse. Because the mount is read-only, trash and rename do not work in the container; use it for browsing only.
 
 ```bash
 MEDIA_PATH=/absolute/path/to/your/folder docker compose up --build
@@ -90,6 +93,7 @@ Files are grouped by lowercase extension plus exact byte size. The extension is 
 - Scanned indexes live in memory. Restarting the server requires scanning again.
 - Moving to trash uses the desktop trash through `gio trash`; it needs a normal desktop session. The app itself never permanently deletes files.
 - A moved file disappears from the scan immediately. The rest of the index is updated in place, including duplicate groups, folder counts, and reclaimable space.
+- Renaming updates the index in place too. Changing a file's extension re-categorizes it and recomputes duplicate groups; a name without a media extension removes the file from the listing only — the file itself stays on disk.
 - Only regular files are indexed. Symlinks and common system/junk folders (`node_modules`, `.git`, `.Trash`, `$RECYCLE.BIN`, etc.) are skipped.
 - Video and audio metadata depend on what the browser can decode.
 
