@@ -1,12 +1,16 @@
 import express from 'express'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import mime from 'mime-types'
 import { scanFolder, readImageDimensions } from './scanner.js'
 import { CATEGORY_LABELS, isTextExtension } from './media.js'
+
+const execFileAsync = promisify(execFile)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const publicDir = path.resolve(__dirname, '..', 'public')
@@ -85,6 +89,12 @@ function defaultBrowsePath() {
 }
 
 const ID_PATTERN = /^[A-Za-z0-9_-]+$/
+const LOOPBACK_HOSTNAMES = /^(localhost|::1|\[::1\]|127(?:\.\d{1,3}){3})$/i
+
+function assertLoopbackRequest(req) {
+  if (LOOPBACK_HOSTNAMES.test(String(req.hostname || ''))) return
+  throw httpError(403, 'انتقال به سطل زباله فقط از روی همین کامپیوتر مجاز است.')
+}
 
 function getRoot(rootId) {
   if (!ID_PATTERN.test(rootId)) throw httpError(404, 'پوشه اسکن‌شده پیدا نشد.')
@@ -190,6 +200,155 @@ function rememberRoot(root) {
   if (roots.size > 8) {
     const oldest = [...roots.values()].sort((a, b) => a.scannedAt - b.scannedAt)[0]
     if (oldest && oldest.id !== root.id) roots.delete(oldest.id)
+  }
+}
+
+let trashQueue = Promise.resolve()
+
+function enqueueTrash(task) {
+  const result = trashQueue.then(task, task)
+  trashQueue = result.catch(() => {})
+  return result
+}
+
+function depthOf(rel) {
+  return rel ? rel.split('/').length : 0
+}
+
+async function verifyTrashTarget(root, file) {
+  let stat
+  try {
+    stat = await fs.lstat(file.abs)
+  } catch {
+    return { ok: false, message: `«${file.name}» پیدا نشد؛ ممکن است قبلاً حذف یا جابه‌جا شده باشد.` }
+  }
+
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    return { ok: false, message: `«${file.name}» دیگر یک فایل معمولی نیست و منتقل نمی‌شود.` }
+  }
+
+  let parentReal
+  try {
+    parentReal = await fs.realpath(path.dirname(file.abs))
+  } catch {
+    return { ok: false, message: `مسیر «${file.name}» قابل بررسی نیست.` }
+  }
+
+  if (!isInside(root.path, parentReal)) {
+    return { ok: false, message: `مسیر «${file.name}» خارج از پوشهٔ بررسی‌شده است.` }
+  }
+
+  if (stat.size !== file.size) {
+    return { ok: false, message: `حجم «${file.name}» بعد از بررسی تغییر کرده است؛ پوشه را دوباره بررسی کنید.` }
+  }
+
+  if (file.ino && stat.ino !== file.ino) {
+    return { ok: false, message: `«${file.name}» بعد از بررسی جایگزین شده است؛ پوشه را دوباره بررسی کنید.` }
+  }
+
+  if (file.dev !== undefined && stat.dev !== file.dev) {
+    return { ok: false, message: `«${file.name}» روی یک فایل‌سیستم دیگر قرار گرفته است؛ پوشه را دوباره بررسی کنید.` }
+  }
+
+  if (Math.abs(stat.mtimeMs - file.mtimeMs) > 1) {
+    return { ok: false, message: `«${file.name}» بعد از بررسی تغییر کرده است؛ پوشه را دوباره بررسی کنید.` }
+  }
+
+  return { ok: true }
+}
+
+function removeFilesFromIndex(root, removedFiles) {
+  const removedIds = new Set(removedFiles.map((file) => file.id))
+  const affectedGroups = new Set(removedFiles.map((file) => file.group).filter(Boolean))
+
+  for (const file of removedFiles) {
+    const node = root.index.directories.get(file.dirRel)
+    if (node) node.files = node.files.filter((candidate) => candidate.id !== file.id)
+    root.index.filesById.delete(file.id)
+  }
+  root.index.files = root.index.files.filter((file) => !removedIds.has(file.id))
+
+  for (const group of affectedGroups) {
+    group.files = group.files.filter((file) => !removedIds.has(file.id))
+    if (group.files.length < 2) {
+      for (const file of group.files) file.group = null
+      const index = root.index.groups.indexOf(group)
+      if (index !== -1) root.index.groups.splice(index, 1)
+    } else {
+      group.wasted = group.size * (group.files.length - 1)
+    }
+  }
+  root.index.groups.sort((a, b) => b.wasted - a.wasted || b.files.length - a.files.length)
+
+  const byDepth = [...root.index.directories.values()].sort((a, b) => depthOf(b.rel) - depthOf(a.rel))
+  for (const node of byDepth) {
+    let mediaCount = node.files.length
+    let totalSize = node.files.reduce((sum, file) => sum + file.size, 0)
+    let dupFileCount = node.files.reduce((sum, file) => sum + (file.group ? 1 : 0), 0)
+    for (const child of node.subdirs) {
+      mediaCount += child.mediaCount
+      totalSize += child.totalSize
+      dupFileCount += child.dupFileCount
+    }
+    node.mediaCount = mediaCount
+    node.totalSize = totalSize
+    node.dupFileCount = dupFileCount
+  }
+
+  const categoryCounts = { image: 0, video: 0, audio: 0, document: 0 }
+  for (const file of root.index.files) categoryCounts[file.category] += 1
+
+  root.stats = {
+    ...root.stats,
+    files: root.index.files.length,
+    duplicateGroups: root.index.groups.length,
+    duplicateFiles: root.index.groups.reduce((sum, group) => sum + group.files.length, 0),
+    wastedBytes: root.index.groups.reduce((sum, group) => sum + group.wasted, 0),
+    categoryCounts
+  }
+}
+
+async function trashFiles(root, rawFileIds) {
+  if (!Array.isArray(rawFileIds)) throw httpError(400, 'فهرست فایل‌ها معتبر نیست.')
+  const fileIds = [...new Set(rawFileIds.filter((id) => typeof id === 'string' && id))]
+  if (fileIds.length === 0) throw httpError(400, 'حداقل یک فایل را انتخاب کنید.')
+  if (fileIds.length > 100) throw httpError(400, 'حداکثر ۱۰۰ فایل در هر درخواست قابل انتقال است.')
+
+  const files = fileIds.map((fileId) => getFile(root, fileId))
+
+  const selectedPerGroup = new Map()
+  for (const file of files) {
+    if (!file.group) throw httpError(409, `«${file.name}» دیگر در گروه فایل‌های تکراری نیست.`)
+    selectedPerGroup.set(file.group, (selectedPerGroup.get(file.group) || 0) + 1)
+  }
+  for (const [group, count] of selectedPerGroup) {
+    if (count >= group.files.length) {
+      throw httpError(409, 'حداقل یک نسخه از هر گروه تکراری باید باقی بماند.')
+    }
+  }
+
+  for (const file of files) {
+    const check = await verifyTrashTarget(root, file)
+    if (!check.ok) throw httpError(409, check.message)
+  }
+
+  const moved = []
+  const failed = []
+  for (const file of files) {
+    try {
+      await execFileAsync('gio', ['trash', '--', file.abs], { timeout: 20000 })
+      moved.push(file)
+    } catch {
+      failed.push({ id: file.id, name: file.name, error: 'انتقال این فایل به سطل زباله ممکن نشد.' })
+    }
+  }
+
+  if (moved.length) removeFilesFromIndex(root, moved)
+
+  return {
+    moved: moved.map((file) => ({ id: file.id, name: file.name, rel: file.rel })),
+    failed,
+    root: rootPublic(root)
   }
 }
 
@@ -463,6 +622,17 @@ app.get('/api/duplicates/:rootId', (req, res, next) => {
         }))
       }))
     })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/trash/:rootId', async (req, res, next) => {
+  try {
+    assertLoopbackRequest(req)
+    const root = getRoot(req.params.rootId)
+    const result = await enqueueTrash(() => trashFiles(root, req.body?.fileIds))
+    res.json(result)
   } catch (error) {
     next(error)
   }

@@ -14,6 +14,7 @@ const ICONS = {
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>`,
   external: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>`,
   download: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h15"/><path d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="m6.5 7 .8 11.2A1.8 1.8 0 0 0 9.1 20h5.8a1.8 1.8 0 0 0 1.8-1.8L17.5 7"/><path d="M10 11v5M14 11v5"/></svg>`,
   arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>`,
   home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 11 8-7 8 7"/><path d="M6.5 9.5V20h11V9.5"/></svg>`,
   alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5M12 16.2h.01"/></svg>`,
@@ -1488,6 +1489,18 @@ function buildDupGroup(group, open) {
         },
         icon('folder', 'icon-sm'),
         h('span', {}, 'پوشه')
+      ),
+      h(
+        'button',
+        {
+          class: 'button button-ghost button-small danger-action',
+          type: 'button',
+          title: 'انتقال به سطل زباله',
+          'aria-label': `انتقال ${file.name} به سطل زباله`,
+          onClick: () => openTrashConfirm(file)
+        },
+        icon('trash', 'icon-sm'),
+        h('span', {}, 'زباله')
       )
     )
 
@@ -1573,6 +1586,7 @@ async function loadDuplicates() {
     const data = await request(`/api/duplicates/${rootId}`)
     if (!state.root || state.root.id !== rootId) return
     state.duplicates = data
+    state.root.stats = data.root.stats
   } catch (error) {
     if (state.root?.id !== rootId) return
     state.duplicatesError = error.message
@@ -1724,6 +1738,111 @@ function categoryFromExt(ext) {
     if (extensionList.includes(normalized)) return category
   }
   return 'document'
+}
+
+function openTrashConfirm(file) {
+  closeActiveOverlay()
+  const rootId = state.root?.id
+  if (!rootId) return
+  let submitting = false
+
+  const errorBox = h('p', { class: 'trash-error hidden', role: 'alert' })
+  const cancelButton = h(
+    'button',
+    { class: 'button button-secondary', type: 'button', onClick: () => close() },
+    'انصراف'
+  )
+  const confirmButton = h(
+    'button',
+    { class: 'button button-danger', type: 'button', onClick: () => submit() },
+    icon('trash', 'icon-sm'),
+    'انتقال به سطل زباله'
+  )
+
+  const modal = h(
+    'div',
+    { class: 'modal trash-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'trash-title' },
+    h(
+      'div',
+      { class: 'modal-header' },
+      h('span', { class: 'trash-modal-icon' }, icon('trash')),
+      h(
+        'div',
+        { style: { minWidth: '0', flex: '1' } },
+        h('h2', { class: 'modal-title', id: 'trash-title' }, 'انتقال به سطل زباله'),
+        h('p', { class: 'modal-subtitle' }, 'فایل از پوشه حذف می‌شود، اما قابل بازگردانی است.')
+      )
+    ),
+    h(
+      'div',
+      { class: 'modal-body' },
+      h(
+        'div',
+        { class: 'trash-file' },
+        fileIcon(file.category),
+        h(
+          'div',
+          { style: { minWidth: '0' } },
+          h('strong', { dir: 'auto' }, file.name),
+          h('span', { class: 'subpath', title: file.rel }, file.dirRel ? `/${file.dirRel}` : '/')
+        )
+      ),
+      h(
+        'p',
+        { class: 'trash-note' },
+        'این فایل به سطل زبالهٔ سیستم منتقل می‌شود و از این پوشه ناپدید می‌شود. تا وقتی سطل زباله را خالی نکنید، می‌توانید آن را بازگردانید.'
+      ),
+      h('p', { class: 'trash-note muted' }, 'حداقل یک نسخه از هر گروه تکراری باید در پوشه باقی بماند.'),
+      errorBox
+    ),
+    h('div', { class: 'modal-footer' }, cancelButton, confirmButton)
+  )
+
+  const overlay = h('div', { class: 'overlay' }, modal)
+  const { close } = mountOverlay(overlay, { closeOnBackdrop: true })
+
+  async function submit() {
+    if (submitting) return
+    submitting = true
+    confirmButton.disabled = true
+    cancelButton.disabled = true
+    errorBox.classList.add('hidden')
+    confirmButton.replaceChildren(icon('trash', 'icon-sm'), 'در حال انتقال…')
+
+    try {
+      const result = await postJSON(`/api/trash/${encodeURIComponent(state.root.id)}`, { fileIds: [file.id] })
+      if (result.failed?.length) throw new Error(result.failed[0].error)
+      close()
+      showToast(`«${file.name}» به سطل زباله منتقل شد.`, 'info', 5000)
+      refreshAfterTrash(result.root)
+    } catch (error) {
+      submitting = false
+      confirmButton.disabled = false
+      cancelButton.disabled = false
+      confirmButton.replaceChildren(icon('trash', 'icon-sm'), 'انتقال به سطل زباله')
+      errorBox.textContent = error.message
+      errorBox.classList.remove('hidden')
+    }
+  }
+
+  requestAnimationFrame(() => cancelButton.focus())
+}
+
+function refreshAfterTrash(updatedRoot) {
+  if (!state.root) return
+  const rootId = state.root.id
+  state.duplicates = null
+  state.duplicatesError = null
+  state.duplicatesLoading = false
+  if (updatedRoot?.id === rootId) state.root.stats = updatedRoot.stats
+  renderApp()
+  loadTree(rootId, state.path)
+    .then((data) => {
+      if (state.root?.id !== rootId) return
+      state.tree = data
+      state.root = data.root
+    })
+    .catch(() => {})
 }
 
 function openPreview(file) {
