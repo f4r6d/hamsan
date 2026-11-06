@@ -336,6 +336,25 @@ a {
   color: var(--text);
 }
 
+.button-danger {
+  background: var(--danger);
+  color: #fff;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--danger) 24%, transparent);
+}
+
+.button-danger:hover {
+  background: color-mix(in srgb, var(--danger) 84%, #000);
+}
+
+.danger-action {
+  color: var(--danger);
+}
+
+.danger-action:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .button-small {
   height: 32px;
   padding: 0 10px;
@@ -1588,6 +1607,72 @@ a {
 .modal-footer .footer-note {
   color: var(--muted);
   font-size: 10px;
+}
+
+.trash-modal {
+  width: min(520px, 100%);
+}
+
+.trash-modal .modal-header {
+  align-items: center;
+}
+
+.trash-modal .modal-footer .button-danger {
+  margin-right: auto;
+}
+
+.trash-modal-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.trash-file {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.trash-file .file-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.trash-file .subpath {
+  display: block;
+  margin-top: 2px;
+}
+
+.trash-note {
+  margin: 0 0 10px;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.trash-note.muted {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.trash-error {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12px;
 }
 
 .browse-modal {

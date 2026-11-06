@@ -4,7 +4,7 @@
 
 A local-only web app that browses a folder on your computer and finds duplicate media files across all of its subfolders. The interface is Persian and right-to-left.
 
-Nothing is uploaded anywhere. The server binds to `127.0.0.1` and only reads the folder you pick.
+Nothing is uploaded anywhere. The server binds to `127.0.0.1` and reads only the folder you pick. The one write action is moving a duplicate to the system trash after you explicitly confirm it.
 
 ## What it does
 
@@ -17,15 +17,17 @@ Nothing is uploaded anywhere. The server binds to `127.0.0.1` and only reads the
 - Previews images, video, audio, PDF, and plain-text files in place, with range requests for seeking and a download button.
 - Shows image dimensions on demand and reads video/audio dimensions and duration in the browser.
 - Offers a "duplicates only" filter, duplicate groups by category, and reclaimable-space totals.
+- Moves a duplicate copy to the system trash from the duplicates view, after a confirmation dialog.
 
-## Read-only by design
+## Safe by design
 
-The app is intentionally **read-only**:
+The app never modifies file contents and never deletes anything permanently.
 
-- It never deletes, moves, renames, truncates, or rewrites any file.
-- Files are only read through `stat`, `readdir`, `realpath`, `open(..., 'r')`, and streamed responses.
-- There is no write, delete, or permission-changing code path in the server.
-- Duplicates are only **reported**; cleaning them up is left to you.
+- The only write action is an explicit, confirmed move of a duplicate to the system trash. There is no permanent-delete endpoint.
+- Before moving, the server re-checks that the file is still the exact file seen during the scan: it is a regular file, not a symlink, still inside the scanned folder, with the same size, inode, device, and modification time.
+- The last remaining copy of a duplicate group is never moved, so the app cannot wipe out every copy in a group.
+- Everything else uses read-only filesystem calls (`stat`, `readdir`, `realpath`, `open(..., 'r')`, and streamed responses).
+- Duplicates are still only reported by default; cleanup only happens when you press the trash button and confirm.
 
 ## Requirements
 
@@ -53,6 +55,7 @@ npm run dev
 2. Click **بررسی این پوشه** (Scan this folder) and wait for the scan to finish.
 3. Browse folders and files, open the **فایل‌های تکراری** tab, or search across all folders.
 4. Click a file to preview it, or the duplicate button to see every copy and jump to its folder.
+5. In the duplicates view, use the trash button on a copy and confirm to move it to the system trash. At least one copy of each group must remain.
 
 ## Configuration
 
@@ -70,7 +73,7 @@ PORT=5000 npm start
 
 ## Docker (optional)
 
-The repository includes a Dockerfile and Compose file, but Docker is not required for local development. The container serves the same local-only app; the host folder is mounted read-only at `/data` and is the only path the container may browse.
+The repository includes a Dockerfile and Compose file, but Docker is not required for local development. The container serves the same local-only app; the host folder is mounted read-only at `/data` and is the only path the container may browse. Because the mount is read-only, moving duplicates to the trash does not work in the container; use it for browsing only.
 
 ```bash
 MEDIA_PATH=/absolute/path/to/your/folder docker compose up --build
@@ -85,7 +88,8 @@ Files are grouped by lowercase extension plus exact byte size. The extension is 
 ## Notes and limitations
 
 - Scanned indexes live in memory. Restarting the server requires scanning again.
-- The app never deletes files; it only reports duplicates.
+- Moving to trash uses the desktop trash through `gio trash`; it needs a normal desktop session. The app itself never permanently deletes files.
+- A moved file disappears from the scan immediately. The rest of the index is updated in place, including duplicate groups, folder counts, and reclaimable space.
 - Only regular files are indexed. Symlinks and common system/junk folders (`node_modules`, `.git`, `.Trash`, `$RECYCLE.BIN`, etc.) are skipped.
 - Video and audio metadata depend on what the browser can decode.
 

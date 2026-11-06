@@ -146,6 +146,8 @@ export async function scanFolder(rootPath, onProgress) {
         category: candidate.category,
         size: stat.size,
         mtimeMs: stat.mtimeMs,
+        dev: stat.dev,
+        ino: stat.ino,
         group: null,
         dims: undefined
       }
