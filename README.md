@@ -47,30 +47,6 @@ For development with automatic restart:
 npm run dev
 ```
 
-## Access from a phone on your home network
-
-`npm start` binds to `127.0.0.1`, so only this computer can open it. To use the app from a phone or tablet on the same Wi-Fi:
-
-1. Start in LAN mode and restrict it to the folder you want to share:
-
-   ```bash
-   ALLOWED_ROOTS="$HOME/Pictures" npm run start:lan
-   ```
-
-   If `ALLOWED_ROOTS` is empty, every folder the process can read becomes browsable from the network.
-
-2. Find this computer's LAN address with `hostname -I`, then open `http://<computer-ip>:4870` on the phone. The server also prints the LAN URL on startup.
-
-3. If the page does not load, allow the port in the firewall:
-
-   ```bash
-   sudo ufw allow 4870/tcp
-   ```
-
-   Remove the rule when you are done: `sudo ufw delete allow 4870/tcp`.
-
-The app is still read-only, but anyone on your Wi-Fi can browse and download files inside the allowed folder while it runs. Do not forward this port on your router and do not expose it to the internet.
-
 ## Usage
 
 1. Enter an absolute folder path or click **مرور** (Browse) to pick a folder.
@@ -84,7 +60,7 @@ The app is still read-only, but anyone on your Wi-Fi can browse and download fil
 | --- | --- | --- |
 | `PORT` | `4870` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address; keep it on loopback for local-only use |
-| `ALLOWED_ROOTS` | *(empty)* | Comma-separated folder allowlist. Empty means any path the process can read; always set it when using LAN mode |
+| `ALLOWED_ROOTS` | *(empty)* | Comma-separated folder allowlist. Empty means any path the process can read |
 
 Example:
 

@@ -6,7 +6,6 @@
   "description": "Local-only duplicate media finder that browses folders on your computer",
   "scripts": {
     "start": "node server/index.js",
-    "start:lan": "HOST=0.0.0.0 node server/index.js",
     "dev": "node --watch server/index.js"
   },
   "engines": {

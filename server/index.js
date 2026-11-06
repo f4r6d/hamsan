@@ -584,28 +584,11 @@ app.use((error, req, res, next) => {
   })
 })
 
-const loopbackHosts = new Set(['127.0.0.1', '::1', 'localhost'])
-
-function lanUrls() {
-  return Object.values(os.networkInterfaces())
-    .flat()
-    .filter((iface) => iface && iface.family === 'IPv4' && !iface.internal)
-    .map((iface) => `http://${iface.address}:${port}`)
-}
-
 async function start() {
   await refreshAllowedRootsReal()
   app.listen(port, host, () => {
     console.log(`\n  همسان — یابنده فایل‌های تکراری`)
-    console.log(`  http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`)
-    if (!loopbackHosts.has(host)) {
-      for (const url of lanUrls()) console.log(`  ${url}`)
-      console.log('  دسترسی از شبکهٔ خانگی فعال است؛ فقط به شبکهٔ مورد اعتماد وصل باشید.')
-      if (!allowedRootInputs.length) {
-        console.log('  هشدار: ALLOWED_ROOTS خالی است، پس هر پوشهٔ قابل‌خواندن قابل مرور است.')
-      }
-    }
-    console.log('')
+    console.log(`  http://${host === '0.0.0.0' ? 'localhost' : host}:${port}\n`)
   })
 }
 
