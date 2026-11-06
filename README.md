@@ -1,5 +1,7 @@
 # Hamsan (همسان)
 
+**English** · **فارسی:** [README.fa.md](README.fa.md)
+
 A local-only web app that browses a folder on your computer and finds duplicate media files across all of its subfolders. The interface is Persian and right-to-left.
 
 Nothing is uploaded anywhere. The server binds to `127.0.0.1` and only reads the folder you pick.
@@ -15,6 +17,15 @@ Nothing is uploaded anywhere. The server binds to `127.0.0.1` and only reads the
 - Previews images, video, audio, PDF, and plain-text files in place, with range requests for seeking and a download button.
 - Shows image dimensions on demand and reads video/audio dimensions and duration in the browser.
 - Offers a "duplicates only" filter, duplicate groups by category, and reclaimable-space totals.
+
+## Read-only by design
+
+The app is intentionally **read-only**:
+
+- It never deletes, moves, renames, truncates, or rewrites any file.
+- Files are only read through `stat`, `readdir`, `realpath`, `open(..., 'r')`, and streamed responses.
+- There is no write, delete, or permission-changing code path in the server.
+- Duplicates are only **reported**; cleaning them up is left to you.
 
 ## Requirements
 
