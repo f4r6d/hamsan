@@ -1,0 +1,25 @@
+{
+  "name": "hamsan",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-only duplicate media finder that browses folders on your computer",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "duplicate-files",
+    "local",
+    "file-browser",
+    "persian"
+  ],
+  "dependencies": {
+    "express": "^4.22.3",
+    "image-size": "^2.1.0",
+    "mime-types": "^3.0.2"
+  }
+}

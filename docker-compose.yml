@@ -1,0 +1,17 @@
+services:
+  hamsan:
+    build: .
+    image: hamsan:1.0.0
+    container_name: hamsan
+    ports:
+      - "127.0.0.1:4870:4870"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4870"
+      ALLOWED_ROOTS: /data
+    volumes:
+      - type: bind
+        source: ${MEDIA_PATH:?Set MEDIA_PATH to the folder you want to browse}
+        target: /data
+        read_only: true
+    restart: unless-stopped
