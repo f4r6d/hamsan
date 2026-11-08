@@ -1085,20 +1085,24 @@ function startInlineRename(row, kind, entry) {
   const rootId = state.root?.id
   if (!rootId || !row) return
 
-  const nameSpan = row.querySelector('.file-name')
+  const nameSpan = row.querySelector('.file-name, .dup-file-name')
   if (!nameSpan) return
 
   let submitting = false
   let done = false
 
+  const dot = kind === 'file' ? entry.name.lastIndexOf('.') : -1
+  const baseName = dot > 0 ? entry.name.slice(0, dot) : entry.name
+  const extSuffix = dot > 0 ? entry.name.slice(dot) : ''
+
   const input = h('input', {
     class: 'rename-input',
     type: 'text',
-    value: entry.name,
+    value: kind === 'file' ? baseName : entry.name,
     dir: 'auto',
     autocomplete: 'off',
     spellcheck: 'false',
-    'aria-label': kind === 'folder' ? 'نام جدید پوشه' : 'نام جدید فایل'
+    'aria-label': kind === 'folder' ? 'نام جدید پوشه' : 'نام جدید فایل (بدون پسوند)'
   })
 
   const confirmButton = h(
@@ -1144,8 +1148,9 @@ function startInlineRename(row, kind, entry) {
 
   async function submit() {
     if (submitting || done) return
-    const newName = input.value.trim()
-    if (!newName || newName === entry.name) {
+    const typed = input.value.trim()
+    const newName = kind === 'file' ? typed + extSuffix : typed
+    if (!typed || newName === entry.name) {
       cancel()
       return
     }
@@ -1203,12 +1208,7 @@ function startInlineRename(row, kind, entry) {
 
   requestAnimationFrame(() => {
     input.focus()
-    if (kind === 'file') {
-      const dot = entry.name.lastIndexOf('.')
-      input.setSelectionRange(0, dot > 0 ? dot : entry.name.length)
-    } else {
-      input.select()
-    }
+    input.select()
   })
 }
 
@@ -1654,6 +1654,21 @@ function buildDupGroup(group, open) {
         {
           class: 'button button-ghost button-small',
           type: 'button',
+          title: 'تغییر نام فایل',
+          'aria-label': `تغییر نام ${file.name}`,
+          onClick: (event) => {
+            event.stopPropagation()
+            startInlineRename(event.currentTarget.closest('.dup-file-row'), 'file', file)
+          }
+        },
+        icon('pencil', 'icon-sm'),
+        h('span', {}, 'تغییر نام')
+      ),
+      h(
+        'button',
+        {
+          class: 'button button-ghost button-small',
+          type: 'button',
           title: 'پیش‌نمایش فایل',
           'aria-label': `پیش‌نمایش ${file.name}`,
           onClick: () => openPreview(file)
@@ -2052,6 +2067,13 @@ async function refreshAfterRename(result, request) {
     state.path = data.path
   } catch {
     // The rename succeeded; keep the previous view if the tree cannot be reloaded.
+  }
+
+  if (state.view === 'duplicates' && request.kind === 'file' && !result.removedFromIndex) {
+    state.pendingGroupId = result.entry?.groupId || null
+    state.pendingFileId = result.entry?.id || null
+    await loadDuplicates()
+    return
   }
 
   if (request.kind === 'file' && !result.removedFromIndex) {

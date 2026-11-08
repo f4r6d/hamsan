@@ -18,7 +18,7 @@ Nothing is uploaded anywhere. The server binds to `127.0.0.1` and reads only the
 - Shows image dimensions on demand and reads video/audio dimensions and duration in the browser.
 - Offers a "duplicates only" filter, duplicate groups by category, and reclaimable-space totals.
 - Moves a duplicate copy to the system trash from the duplicates view, after a confirmation dialog.
-- Renames a file or folder in place from any row: press the pencil button, type the new name, and confirm with Enter.
+- Renames a file or folder in place from any row, including every copy in the duplicates view: press the pencil button, type the new name, and confirm with Enter. For files the editor shows only the name without the extension, and the extension is always preserved.
 
 ## Safe by design
 
@@ -58,7 +58,7 @@ npm run dev
 3. Browse folders and files, open the **فایل‌های تکراری** tab, or search across all folders.
 4. Click a file to preview it, or the duplicate button to see every copy and jump to its folder.
 5. In the duplicates view, use the trash button on a copy and confirm to move it to the system trash. At least one copy of each group must remain.
-6. To rename a file or folder, press the pencil button on its row, edit the name in place, and press Enter (Esc cancels).
+6. To rename a file or folder, press the pencil button on its row (also next to each copy in the duplicates view), edit the name in place, and press Enter (Esc cancels). For files only the name without the extension is editable; the extension is kept.
 
 ## Configuration
 
@@ -93,7 +93,7 @@ Files are grouped by lowercase extension plus exact byte size. The extension is 
 - Scanned indexes live in memory. Restarting the server requires scanning again.
 - Moving to trash uses the desktop trash through `gio trash`; it needs a normal desktop session. The app itself never permanently deletes files.
 - A moved file disappears from the scan immediately. The rest of the index is updated in place, including duplicate groups, folder counts, and reclaimable space.
-- Renaming updates the index in place too. Changing a file's extension re-categorizes it and recomputes duplicate groups; a name without a media extension removes the file from the listing only — the file itself stays on disk.
+- Renaming updates the index in place too. The editor never changes a file's extension, so categories and duplicate groups stay intact; renaming a folder updates the paths of everything inside it.
 - Only regular files are indexed. Symlinks and common system/junk folders (`node_modules`, `.git`, `.Trash`, `$RECYCLE.BIN`, etc.) are skipped.
 - Video and audio metadata depend on what the browser can decode.
 
