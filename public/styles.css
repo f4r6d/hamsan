@@ -1091,6 +1091,10 @@ a {
   unicode-bidi: plaintext;
 }
 
+.dup-file-info .rename-input {
+  min-width: 56px;
+}
+
 .rename-confirm,
 .rename-cancel {
   width: 28px;
@@ -1561,6 +1565,11 @@ a {
 
 .dup-file-row.highlighted {
   animation: rowFlash 2.4s ease;
+}
+
+.dup-file-row.renaming,
+.dup-file-row.renaming:hover {
+  background: var(--accent-soft);
 }
 
 .dup-file-row .file-icon {
@@ -2444,7 +2453,7 @@ body.modal-open {
     margin-right: 0;
   }
 
-  .dup-file-actions .button span {
+  .dup-file-actions .button span:not(.icon) {
     display: none;
   }
 
