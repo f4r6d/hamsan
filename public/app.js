@@ -41,6 +41,7 @@ const state = {
   duplicatesError: null,
   dupFilter: 'all',
   dupSearch: '',
+  dupSelection: new Set(),
   welcomePath: '',
   scanToken: 0,
   highlightId: null,
@@ -1516,6 +1517,7 @@ function renderDuplicatesMain() {
     'main',
     { class: 'page' },
     buildStats(),
+    buildSelectionBar(),
     panel,
     h('footer', { class: 'app-footer' }, 'قاعدهٔ تشخیص: پسوند یکسان + حجم بایت‌به‌بایت یکسان')
   )
@@ -1588,6 +1590,7 @@ function renderDupList() {
       container.replaceChildren(loadingState('در حال پیدا کردن فایل‌های تکراری…'))
     }
     if (countElement) countElement.textContent = ''
+    updateSelectionUI()
     return
   }
 
@@ -1619,6 +1622,7 @@ function renderDupList() {
         emptyState('search', 'با این فیلتر چیزی پیدا نشد', 'فیلتر دسته یا عبارت جستجو را تغییر بده.')
       )
     }
+    updateSelectionUI()
     return
   }
 
@@ -1628,12 +1632,21 @@ function renderDupList() {
     fragment.append(buildDupGroup(group, openAll || group.id === state.pendingGroupId))
   })
   container.replaceChildren(fragment)
+  updateSelectionUI()
 }
 
 function buildDupGroup(group, open) {
   const filesBox = h('div', { class: 'dup-files' })
 
   for (const file of group.files) {
+    const checkbox = h('input', {
+      type: 'checkbox',
+      class: 'dup-check',
+      checked: state.dupSelection.has(file.id),
+      'aria-label': `انتخاب ${file.name}`,
+      onChange: (event) => setFileSelected(file.id, event.target.checked)
+    })
+
     const previewButton = h(
       'button',
       {
@@ -1705,7 +1718,8 @@ function buildDupGroup(group, open) {
     filesBox.append(
       h(
         'div',
-        { class: 'dup-file-row', dataset: { fileId: file.id } },
+        { class: `dup-file-row${state.dupSelection.has(file.id) ? ' selected' : ''}`, dataset: { fileId: file.id } },
+        checkbox,
         fileIcon(file.category),
         h(
           'div',
@@ -1718,12 +1732,29 @@ function buildDupGroup(group, open) {
     )
   }
 
+  const selectedCount = group.files.filter((file) => state.dupSelection.has(file.id)).length
+  const groupCheck = h('button', {
+    type: 'button',
+    class: 'dup-check dup-group-check',
+    role: 'checkbox',
+    'aria-checked': selectedCount === group.files.length ? 'true' : selectedCount > 0 ? 'mixed' : 'false',
+    title: 'انتخاب همهٔ نسخه‌های این گروه',
+    'aria-label': 'انتخاب همهٔ نسخه‌های این گروه',
+    onClick: (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const allSelected = group.files.every((file) => state.dupSelection.has(file.id))
+      setGroupSelected(group, !allSelected)
+    }
+  })
+
   return h(
     'details',
-    { class: 'dup-group', open, dataset: { groupId: group.id } },
+    { class: `dup-group${selectedCount ? ' has-selection' : ''}`, open, dataset: { groupId: group.id } },
     h(
       'summary',
       {},
+      groupCheck,
       fileIcon(group.category),
       h(
         'div',
@@ -1746,6 +1777,126 @@ function buildDupGroup(group, open) {
       h('span', { class: 'icon dup-chevron', html: ICONS.chevronDown, 'aria-hidden': 'true' })
     ),
     filesBox
+  )
+}
+
+function selectedFiles() {
+  const files = []
+  for (const group of state.duplicates?.groups || []) {
+    for (const file of group.files) {
+      if (state.dupSelection.has(file.id)) files.push(file)
+    }
+  }
+  return files
+}
+
+function selectionBlocker() {
+  if (!state.dupSelection.size) return null
+  if (state.dupSelection.size > 100) {
+    return 'حداکثر ۱۰۰ فایل در هر درخواست قابل انتقال است؛ تعداد انتخاب را کم کنید.'
+  }
+  for (const group of state.duplicates?.groups || []) {
+    let count = 0
+    for (const file of group.files) {
+      if (state.dupSelection.has(file.id)) count += 1
+    }
+    if (count && count >= group.files.length) {
+      return 'حداقل یک نسخه از هر گروه باید باقی بماند؛ از گروه‌هایی که همهٔ نسخه‌هایشان انتخاب شده، یک نسخه را از انتخاب خارج کنید.'
+    }
+  }
+  return null
+}
+
+function setFileSelected(fileId, selected) {
+  if (selected) state.dupSelection.add(fileId)
+  else state.dupSelection.delete(fileId)
+  updateSelectionUI()
+}
+
+function setGroupSelected(group, selected) {
+  for (const file of group.files) {
+    if (selected) state.dupSelection.add(file.id)
+    else state.dupSelection.delete(file.id)
+  }
+  updateSelectionUI()
+}
+
+function clearDupSelection() {
+  state.dupSelection = new Set()
+  updateSelectionUI()
+}
+
+function updateSelectionUI() {
+  for (const group of state.duplicates?.groups || []) {
+    let selectedCount = 0
+    for (const file of group.files) {
+      const selected = state.dupSelection.has(file.id)
+      if (selected) selectedCount += 1
+      const row = document.querySelector(`.dup-file-row[data-file-id="${CSS.escape(file.id)}"]`)
+      if (!row) continue
+      row.classList.toggle('selected', selected)
+      const box = row.querySelector('.dup-check')
+      if (box) box.checked = selected
+    }
+    const groupElement = document.querySelector(`details.dup-group[data-group-id="${CSS.escape(group.id)}"]`)
+    if (!groupElement) continue
+    groupElement.classList.toggle('has-selection', selectedCount > 0)
+    const groupBox = groupElement.querySelector('.dup-group-check')
+    if (groupBox) {
+      groupBox.setAttribute(
+        'aria-checked',
+        selectedCount > 0 && selectedCount === group.files.length ? 'true' : selectedCount > 0 ? 'mixed' : 'false'
+      )
+    }
+  }
+
+  const bar = document.getElementById('dup-selection-bar')
+  if (!bar) return
+  const files = selectedFiles()
+  bar.classList.toggle('hidden', files.length === 0)
+  if (!files.length) return
+
+  const totalSize = files.reduce((sum, file) => sum + (file.size || 0), 0)
+  bar.querySelector('.dup-selection-count').textContent = `${formatCount(files.length)} فایل انتخاب شده`
+  bar.querySelector('.dup-selection-size').textContent = formatBytes(totalSize)
+  const blocker = selectionBlocker()
+  bar.querySelector('.dup-selection-warning-text').textContent = blocker || ''
+  bar.querySelector('.dup-selection-warning').classList.toggle('hidden', !blocker)
+  bar.querySelector('.dup-selection-trash').disabled = Boolean(blocker)
+}
+
+function buildSelectionBar() {
+  return h(
+    'div',
+    { class: 'dup-selection-bar hidden', id: 'dup-selection-bar', role: 'region', 'aria-label': 'فایل‌های انتخاب‌شده' },
+    h(
+      'div',
+      { class: 'dup-selection-info' },
+      h('strong', { class: 'dup-selection-count' }, ''),
+      h('span', { class: 'dup-selection-size ltr' }, ''),
+      h(
+        'div',
+        { class: 'dup-selection-warning hidden', role: 'alert' },
+        icon('alert', 'icon-sm'),
+        h('span', { class: 'dup-selection-warning-text' }, '')
+      )
+    ),
+    h(
+      'div',
+      { class: 'dup-selection-actions' },
+      h(
+        'button',
+        { class: 'button button-ghost button-small', type: 'button', onClick: () => clearDupSelection() },
+        icon('close', 'icon-sm'),
+        h('span', {}, 'لغو انتخاب')
+      ),
+      h(
+        'button',
+        { class: 'button button-danger button-small dup-selection-trash', type: 'button', onClick: () => openBulkTrashConfirm() },
+        icon('trash', 'icon-sm'),
+        h('span', {}, 'انتقال به سطل زباله')
+      )
+    )
   )
 }
 
@@ -1785,6 +1936,11 @@ async function loadDuplicates() {
     if (!state.root || state.root.id !== rootId) return
     state.duplicates = data
     state.root.stats = data.root.stats
+    const present = new Set()
+    for (const group of data.groups || []) {
+      for (const file of group.files) present.add(file.id)
+    }
+    state.dupSelection = new Set([...state.dupSelection].filter((id) => present.has(id)))
   } catch (error) {
     if (state.root?.id !== rootId) return
     state.duplicatesError = error.message
@@ -2018,6 +2174,119 @@ function openTrashConfirm(file) {
       confirmButton.disabled = false
       cancelButton.disabled = false
       confirmButton.replaceChildren(icon('trash', 'icon-sm'), 'انتقال به سطل زباله')
+      errorBox.textContent = error.message
+      errorBox.classList.remove('hidden')
+    }
+  }
+
+  requestAnimationFrame(() => cancelButton.focus())
+}
+
+function openBulkTrashConfirm() {
+  const files = selectedFiles()
+  const rootId = state.root?.id
+  if (!files.length || !rootId) return
+  const blocker = selectionBlocker()
+  if (blocker) {
+    showToast(blocker, 'error')
+    return
+  }
+  closeActiveOverlay()
+  let submitting = false
+
+  const totalSize = files.reduce((sum, file) => sum + (file.size || 0), 0)
+  const confirmLabel = `انتقال ${formatCount(files.length)} فایل به سطل زباله`
+  const errorBox = h('p', { class: 'trash-error hidden', role: 'alert' })
+  const cancelButton = h(
+    'button',
+    { class: 'button button-secondary', type: 'button', onClick: () => close() },
+    'انصراف'
+  )
+  const confirmButton = h(
+    'button',
+    { class: 'button button-danger', type: 'button', onClick: () => submit() },
+    icon('trash', 'icon-sm'),
+    confirmLabel
+  )
+
+  const listBox = h(
+    'div',
+    { class: 'trash-list' },
+    files.map((file) =>
+      h(
+        'div',
+        { class: 'trash-file' },
+        fileIcon(file.category),
+        h(
+          'div',
+          { style: { minWidth: '0', flex: '1' } },
+          h('strong', { dir: 'auto' }, file.name),
+          h('span', { class: 'subpath', title: file.rel }, file.dirRel ? `/${file.dirRel}` : '/')
+        ),
+        h('span', { class: 'trash-file-size ltr' }, formatBytes(file.size || 0))
+      )
+    )
+  )
+
+  const modal = h(
+    'div',
+    { class: 'modal trash-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'trash-title' },
+    h(
+      'div',
+      { class: 'modal-header' },
+      h('span', { class: 'trash-modal-icon' }, icon('trash')),
+      h(
+        'div',
+        { style: { minWidth: '0', flex: '1' } },
+        h('h2', { class: 'modal-title', id: 'trash-title' }, 'انتقال به سطل زباله'),
+        h('p', { class: 'modal-subtitle' }, 'فایل‌های انتخاب‌شده از پوشه حذف می‌شوند، اما قابل بازگردانی هستند.')
+      )
+    ),
+    h(
+      'div',
+      { class: 'modal-body' },
+      h(
+        'div',
+        { class: 'trash-list-head' },
+        h('strong', {}, `${formatCount(files.length)} فایل انتخاب شده`),
+        h('span', { class: 'ltr muted' }, formatBytes(totalSize))
+      ),
+      listBox,
+      h(
+        'p',
+        { class: 'trash-note' },
+        'این فایل‌ها به سطل زبالهٔ سیستم منتقل می‌شوند و از این پوشه ناپدید می‌شوند. تا وقتی سطل زباله را خالی نکنید، می‌توانید آن‌ها را بازگردانید.'
+      ),
+      h('p', { class: 'trash-note muted' }, 'حداقل یک نسخه از هر گروه تکراری باید در پوشه باقی بماند.'),
+      errorBox
+    ),
+    h('div', { class: 'modal-footer' }, cancelButton, confirmButton)
+  )
+
+  const overlay = h('div', { class: 'overlay' }, modal)
+  const { close } = mountOverlay(overlay, { closeOnBackdrop: true })
+
+  async function submit() {
+    if (submitting) return
+    submitting = true
+    confirmButton.disabled = true
+    cancelButton.disabled = true
+    errorBox.classList.add('hidden')
+    confirmButton.replaceChildren(icon('trash', 'icon-sm'), 'در حال انتقال…')
+
+    try {
+      const result = await postJSON(`/api/trash/${encodeURIComponent(rootId)}`, { fileIds: files.map((file) => file.id) })
+      const movedCount = result.moved?.length || 0
+      const failedCount = result.failed?.length || 0
+      close()
+      if (movedCount) showToast(`${formatCount(movedCount)} فایل به سطل زباله منتقل شد.`, 'info', 5000)
+      if (failedCount) showToast(`${formatCount(failedCount)} فایل منتقل نشد: ${result.failed[0].error}`, 'error', 7000)
+      refreshAfterTrash(result.root)
+    } catch (error) {
+      submitting = false
+      confirmButton.disabled = false
+      cancelButton.disabled = false
+      confirmButton.replaceChildren(icon('trash', 'icon-sm'), confirmLabel)
       errorBox.textContent = error.message
       errorBox.classList.remove('hidden')
     }
@@ -2589,6 +2858,7 @@ async function openRoot(rootId, targetPath = '') {
     state.duplicatesError = null
     state.dupFilter = 'all'
     state.dupSearch = ''
+    state.dupSelection = new Set()
     state.welcomePath = data.root.path
     saveLastRoot(data.root)
     addRecent(data.root)
