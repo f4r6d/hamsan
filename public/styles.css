@@ -1572,6 +1572,11 @@ a {
   background: var(--accent-soft);
 }
 
+.dup-file-row.selected,
+.dup-file-row.selected:hover {
+  background: var(--accent-soft);
+}
+
 .dup-file-row .file-icon {
   width: 30px;
   height: 30px;
@@ -1609,6 +1614,123 @@ a {
 
 .group-highlight {
   animation: groupFlash 2.2s ease;
+}
+
+/* Duplicates bulk selection */
+
+.dup-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.dup-check:hover {
+  border-color: var(--accent);
+}
+
+.dup-check:checked,
+.dup-check:indeterminate,
+.dup-check[aria-checked="true"],
+.dup-check[aria-checked="mixed"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.dup-check:checked::after,
+.dup-check[aria-checked="true"]::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  border: 2px solid #fff;
+  border-top: 0;
+  border-right: 0;
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+.dup-check:indeterminate::after,
+.dup-check[aria-checked="mixed"]::after {
+  content: "";
+  width: 9px;
+  height: 2px;
+  border-radius: 1px;
+  background: #fff;
+}
+
+.dup-group.has-selection,
+.dup-group.has-selection[open] {
+  border-color: var(--accent-border);
+}
+
+.dup-selection-bar {
+  position: sticky;
+  top: 66px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-sm);
+  animation: fade 0.15s ease both;
+}
+
+.dup-selection-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dup-selection-count {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--accent-strong);
+}
+
+.dup-selection-size {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dup-selection-warning {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.7;
+  color: var(--warn);
+}
+
+.dup-selection-warning .icon {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+}
+
+.dup-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 /* Overlay, modals, drawer */
@@ -1754,6 +1876,76 @@ a {
   background: var(--danger-soft);
   color: var(--danger);
   font-size: 12px;
+}
+
+.trash-list-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.trash-list {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  padding-inline-end: 4px;
+}
+
+.trash-list .trash-file {
+  margin-bottom: 0;
+}
+
+.trash-file-size {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.modal-body,
+.trash-list,
+.browse-list,
+.drawer-body,
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.modal-body::-webkit-scrollbar,
+.trash-list::-webkit-scrollbar,
+.browse-list::-webkit-scrollbar,
+.drawer-body::-webkit-scrollbar,
+.table-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.modal-body::-webkit-scrollbar-track,
+.trash-list::-webkit-scrollbar-track,
+.browse-list::-webkit-scrollbar-track,
+.drawer-body::-webkit-scrollbar-track,
+.table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb,
+.trash-list::-webkit-scrollbar-thumb,
+.browse-list::-webkit-scrollbar-thumb,
+.drawer-body::-webkit-scrollbar-thumb,
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover,
+.trash-list::-webkit-scrollbar-thumb:hover,
+.browse-list::-webkit-scrollbar-thumb:hover,
+.drawer-body::-webkit-scrollbar-thumb:hover,
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 
 .browse-modal {
@@ -2455,6 +2647,28 @@ body.modal-open {
 
   .dup-file-actions .button span:not(.icon) {
     display: none;
+  }
+
+  .dup-file-row {
+    gap: 8px;
+    padding: 9px 10px;
+  }
+
+  .dup-group > summary {
+    gap: 8px;
+    padding: 12px 10px;
+  }
+
+  .dup-selection-bar {
+    padding: 10px 12px;
+  }
+
+  .dup-selection-actions {
+    width: 100%;
+  }
+
+  .dup-selection-actions .button {
+    flex: 1;
   }
 
   .modal {

@@ -17,7 +17,8 @@ Nothing is uploaded anywhere. The server binds to `127.0.0.1` and reads only the
 - Previews images, video, audio, PDF, and plain-text files in place, with range requests for seeking and a download button.
 - Shows image dimensions on demand and reads video/audio dimensions and duration in the browser.
 - Offers a "duplicates only" filter, duplicate groups by category, and reclaimable-space totals.
-- Moves a duplicate copy to the system trash from the duplicates view, after a confirmation dialog.
+- Selects copies in the duplicates view with a checkbox on every row and a select-all control on each group; a sticky bar shows the selected count and total size and lets you clear the selection.
+- Moves a duplicate copy to the system trash from the duplicates view, either one at a time or all selected copies in bulk, after a confirmation dialog.
 - Renames a file or folder in place from any row, including every copy in the duplicates view: press the pencil button, type the new name, and confirm with Enter. For files the editor shows only the name without the extension, and the extension is always preserved.
 
 ## Safe by design
@@ -26,7 +27,8 @@ The app never modifies file contents and never deletes anything permanently.
 
 - The only write actions are an explicit, confirmed move of a duplicate to the system trash, and an explicit inline rename of a file or folder. There is no permanent-delete endpoint.
 - Before moving, the server re-checks that the file is still the exact file seen during the scan: it is a regular file, not a symlink, still inside the scanned folder, with the same size, inode, device, and modification time.
-- The last remaining copy of a duplicate group is never moved, so the app cannot wipe out every copy in a group.
+- The last remaining copy of a duplicate group is never moved, so the app cannot wipe out every copy in a group. This holds for bulk moves too: if a selection covers every copy of a group, the request is rejected until you leave one copy unselected.
+- A bulk move validates every selected file before moving any of them, reports per-file failures honestly, and accepts at most 100 files per request.
 - Rename never overwrites: if the new name already exists, the request is rejected. The source is re-checked the same way as for trash, names with path separators or control characters are rejected, and both write endpoints only accept requests from this computer (loopback).
 - Everything else uses read-only filesystem calls (`stat`, `readdir`, `realpath`, `open(..., 'r')`, and streamed responses).
 - Duplicates are still only reported by default; cleanup only happens when you press the trash button and confirm.
@@ -57,7 +59,7 @@ npm run dev
 2. Click **بررسی این پوشه** (Scan this folder) and wait for the scan to finish.
 3. Browse folders and files, open the **فایل‌های تکراری** tab, or search across all folders.
 4. Click a file to preview it, or the duplicate button to see every copy and jump to its folder.
-5. In the duplicates view, use the trash button on a copy and confirm to move it to the system trash. At least one copy of each group must remain.
+5. In the duplicates view, move copies to the system trash either with the trash button on a single row, or by ticking row checkboxes (or a group's select-all) and pressing **انتقال به سطل زباله** in the sticky selection bar, then confirming. At least one copy of each group must remain.
 6. To rename a file or folder, press the pencil button on its row (also next to each copy in the duplicates view), edit the name in place, and press Enter (Esc cancels). For files only the name without the extension is editable; the extension is kept.
 
 ## Configuration
